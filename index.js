@@ -1,8 +1,15 @@
+// index.js
+require('dotenv').config();
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+// Configurações do Puppeteer para Docker
+process.env.PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium-browser';
+process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true';
+
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Configuração do Puppeteer
 puppeteer.use(StealthPlugin());
@@ -11,19 +18,25 @@ app.use(express.json());
 async function fetchWithPuppeteer(targetUrl) {
   const browser = await puppeteer.launch({
     headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu'
+    ],
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
   });
 
   const page = await browser.newPage();
   
   try {
-    // Primeiro acesso ao site principal para estabelecer sessão
+    // Primeiro acesso para estabelecer sessão
     await page.goto('https://demo.wee.bet/', {
       waitUntil: 'networkidle2',
       timeout: 60000
     });
 
-    // Configura headers para a requisição
+    // Interceptação de requests
     await page.setRequestInterception(true);
     
     page.on('request', (request) => {
@@ -36,14 +49,13 @@ async function fetchWithPuppeteer(targetUrl) {
       request.continue({ headers });
     });
 
-    // Faz a requisição para a API
+    // Requisição para a API
     const response = await page.goto(targetUrl, {
       waitUntil: 'networkidle2',
       timeout: 30000
     });
 
     const data = await response.json();
-    
     await browser.close();
     return data;
     
@@ -53,7 +65,7 @@ async function fetchWithPuppeteer(targetUrl) {
   }
 }
 
-// Endpoint POST para receber as requisições
+// Endpoint POST
 app.post('/fetch-data', async (req, res) => {
   try {
     const { url } = req.body;
