@@ -2,7 +2,7 @@ const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const app = express();
-const port = process.env.PORT || 3000;
+const port =  3000;
 
 // Configurações otimizadas para Puppeteer
 process.env.PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium-browser';
