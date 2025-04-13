@@ -42,7 +42,7 @@ async function fetchWithPuppeteer(targetUrl) {
     // Faz a requisição para a API
     const response = await page.goto(targetUrl, {
       waitUntil: 'networkidle2',
-      timeout: 30000
+      timeout: 120000
     });
 
     const data = await response.json();
