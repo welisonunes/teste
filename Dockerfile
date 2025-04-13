@@ -16,10 +16,11 @@ RUN apk add --no-cache \
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV NODE_ENV=production
 ENV DISPLAY=:99
+ENV XVFB_WHD="1280x720x16"
 
 COPY package*.json ./
 RUN npm install --production
 
 COPY . .
 
-CMD ["xvfb-run", "-a", "node", "--max-old-space-size=384", "index.js"]
+CMD ["xvfb-run", "-a", "node", "--max-old-space-size=256", "index.js"]

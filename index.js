@@ -1,24 +1,51 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const Xvfb = require('xvfb');
 const app = express();
-const port =  3000;
 
-// Configurações otimizadas para Puppeteer
+// Configuração do Xvfb para virtual display
+const xvfb = new Xvfb({
+  silent: true,
+  xvfb_args: ['-screen', '0', '1280x720x16', '-ac']
+});
+
+// Inicializa o virtual display
+try {
+  xvfb.startSync();
+  console.log('Xvfb inicializado com sucesso');
+} catch (error) {
+  console.error('Falha ao iniciar Xvfb:', error);
+}
+
+// Configurações do Puppeteer
+const port =  3000;
 process.env.PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium-browser';
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true';
 
-// Cache para reutilização do browser
+// Variáveis de controle
 let browserInstance = null;
-const MAX_CONCURRENT_REQUESTS = 1; // Reduzido para 1 em ambientes limitados
+const MAX_CONCURRENT_REQUESTS = 1;
 let activeRequests = 0;
 
-// Configuração do Puppeteer
+// Configuração do Express
 puppeteer.use(StealthPlugin());
 app.use(express.json());
 
+// Health Check Endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    memory: process.memoryUsage(),
+    activeRequests,
+    uptime: process.uptime()
+  });
+});
+
+// Gerenciamento do Browser
 async function getBrowser() {
-  if (!browserInstance || !await isBrowserConnected(browserInstance)) {
+  if (!browserInstance || !(await isBrowserConnected())) {
+    console.log('Iniciando novo navegador...');
     browserInstance = await puppeteer.launch({
       headless: 'new',
       args: [
@@ -28,38 +55,44 @@ async function getBrowser() {
         '--single-process',
         '--no-zygote',
         '--disable-gpu',
+        '--disable-software-rasterizer',
         '--font-render-hinting=none',
-        '--disable-features=IsolateOrigins,site-per-process'
+        '--disable-features=IsolateOrigins,site-per-process,AudioServiceOutOfProcess'
       ],
-      timeout: 60000,
-      protocolTimeout: 120000 // Aumentado para 2 minutos
+      timeout: 90000,
+      protocolTimeout: 180000
     });
   }
   return browserInstance;
 }
 
-async function isBrowserConnected(browser) {
+async function isBrowserConnected() {
   try {
-    const version = await browser.version();
-    return !!version;
+    return !!browserInstance && (await browserInstance.version());
   } catch (error) {
+    console.log('Browser desconectado:', error.message);
     return false;
   }
 }
 
+// Função principal de scraping
 async function fetchWithPuppeteer(targetUrl) {
-  while (activeRequests >= MAX_CONCURRENT_REQUESTS) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-
-  activeRequests++;
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-
+  let browser, page;
+  
   try {
-    // Configuração de timeout e recursos bloqueados
+    // Controle de concorrência
+    while (activeRequests >= MAX_CONCURRENT_REQUESTS) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    activeRequests++;
+
+    // Configuração do navegador
+    browser = await getBrowser();
+    page = await browser.newPage();
+
+    // Otimizações de performance
     await page.setRequestInterception(true);
-    page.on('request', (req) => {
+    page.on('request', req => {
       if (['image', 'font', 'stylesheet', 'media'].includes(req.resourceType())) {
         req.abort();
       } else {
@@ -75,68 +108,74 @@ async function fetchWithPuppeteer(targetUrl) {
       }
     });
 
-    // Acesso otimizado com verificação
+    // Navegação inicial
     await page.goto('https://demo.wee.bet/', {
-      waitUntil: 'domcontentloaded',
-      timeout: 40000
+      waitUntil: 'networkidle0',
+      timeout: 120000
     });
 
-    // Request principal com tratamento de status
+    // Requisição principal
     const response = await page.goto(targetUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
+      waitUntil: 'networkidle0',
+      timeout: 180000
     });
 
     if (!response.ok()) {
-      throw new Error(`HTTP Error ${response.status()}`);
+      throw new Error(`Erro HTTP ${response.status()}`);
     }
 
     return await response.json();
 
   } catch (error) {
-    console.error('Erro durante o scraping:', error);
+    console.error('Erro durante a operação:', error);
     throw error;
   } finally {
-    await page.close().catch(error => console.error('Erro ao fechar página:', error));
+    if (page) await page.close().catch(() => {});
     activeRequests--;
   }
 }
 
-// Endpoint POST com tratamento melhorado
+// Endpoint de requisições
 app.post('/fetch-data', async (req, res) => {
   try {
     const { url } = req.body;
     
     if (!url?.includes('weebet.tech')) {
-      return res.status(400).json({ error: 'URL inválida ou não fornecida' });
+      return res.status(400).json({ error: 'URL inválida' });
     }
 
     const result = await Promise.race([
       fetchWithPuppeteer(url),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout após 120s')), 120000)
-      )
+        setTimeout(() => reject(new Error('Timeout após 180s')), 180000)
+      ) 
     ]);
 
     res.json(result);
-    
+
   } catch (error) {
     res.status(500).json({
       error: 'Falha na requisição',
       details: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
     });
   }
 });
 
 // Gerenciamento de shutdown
-process.on('SIGTERM', async () => {
-  console.log('Recebido SIGTERM, encerrando...');
-  if (browserInstance) {
-    await browserInstance.close().catch(error => console.error('Erro ao fechar browser:', error));
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+async function shutdown() {
+  console.log('Encerrando aplicação...');
+  try {
+    if (browserInstance) await browserInstance.close();
+    xvfb.stopSync();
+  } catch (error) {
+    console.error('Erro no encerramento:', error);
   }
   process.exit(0);
-});
+}
 
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
