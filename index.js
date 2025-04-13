@@ -19,7 +19,7 @@ try {
 }
 
 // Configurações do Puppeteer
-const port =  3000;
+const port =  3001;
 process.env.PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium-browser';
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true';
 
@@ -107,17 +107,17 @@ async function fetchWithPuppeteer(targetUrl) {
         });
       }
     });
-
+    await page.setDefaultNavigationTimeout(240000);
     // Navegação inicial
     await page.goto('https://demo.wee.bet/', {
       waitUntil: 'networkidle0',
-      timeout: 120000
+      timeout: 240000
     });
 
     // Requisição principal
     const response = await page.goto(targetUrl, {
       waitUntil: 'networkidle0',
-      timeout: 180000
+      timeout: 240000
     });
 
     if (!response.ok()) {
