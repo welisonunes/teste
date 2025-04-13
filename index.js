@@ -19,7 +19,7 @@ try {
 }
 
 // Configurações do Puppeteer
-const port =  process.env.PORT || 3001;
+const port =  process.env.PORT || 10000 ;
 process.env.PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium-browser';
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true';
 
