@@ -18,7 +18,7 @@ try {
   console.error('Falha ao iniciar Xvfb:', error);
 }
 
-// Configurações do Puppeteer
+// Configurações do Puppeteer   
 const port =  process.env.PORT || 10000 ;
 process.env.PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium-browser';
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true';
